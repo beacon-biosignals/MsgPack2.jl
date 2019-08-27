@@ -44,7 +44,7 @@ end
 
 # StringType
 
-@test can_round_trip(join(rand(Char, 30)), String)
+@test can_round_trip(join(rand(Char, 9)), String)
 @test can_round_trip(join(rand(Char, typemax(UInt8) - 1)), String)
 @test can_round_trip(join(rand(Char, typemax(UInt8) + 1)), String)
 @test can_round_trip(join(rand(Char, typemax(UInt16) + 1)), String)
@@ -80,7 +80,7 @@ push!(arr, deepcopy(arr))
 @test can_round_trip(arr, Vector{Any})
 for x in arr
     T = Vector{typeof(x)}
-    @test can_round_trip(fill(x, 30), T)
+    @test can_round_trip(fill(x, 9), T)
     @test can_round_trip(fill(x, typemax(UInt8) - 1), T)
     @test can_round_trip(fill(x, typemax(UInt8) + 1), T)
     @test can_round_trip(fill(x, typemax(UInt16) + 1), T)
@@ -91,13 +91,44 @@ end
 dict = Dict(zip(arr, reverse(arr)))
 
 @test can_round_trip(dict, Dict{Any,Any})
-for (k, v) in dict
-    T = Dict{typeof(k),typeof(v)}
-    @test can_round_trip(Dict(zip(fill(k, 30), fill(v, 30))),  T)
-    @test can_round_trip(Dict(zip(fill(k, typemax(UInt8) - 1), fill(v, typemax(UInt8) - 1))), T)
-    @test can_round_trip(Dict(zip(fill(k, typemax(UInt8) + 1), fill(v, typemax(UInt8) + 1))), T)
-    @test can_round_trip(Dict(zip(fill(k, typemax(UInt16) + 1), fill(v, typemax(UInt16) + 1))), T)
+for v in values(dict)
+    T = Dict{Int,typeof(v)}
+    @test can_round_trip(Dict(zip(1:9, fill(v, 9))), T)
+    @test can_round_trip(Dict(zip(1:(typemax(UInt8) - 1), fill(v, typemax(UInt8) - 1))), T)
+    @test can_round_trip(Dict(zip(1:(typemax(UInt8) + 1), fill(v, typemax(UInt8) + 1))), T)
+    @test can_round_trip(Dict(zip(1:(typemax(UInt16) + 1), fill(v, typemax(UInt16) + 1))), T)
 end
 
-# TODO: ImmutableStructType
+# ImmutableStructType
+
+struct Bar{T}
+    a::T
+    b::T
+end
+
+Base.:(==)(a::Bar, b::Bar) = a.a == b.a && a.b == b.b
+
+MsgPack2.construct(::Type{T}, args...) where {T<:Bar} = T(promote(args...)...)
+
+MsgPack2.msgpack_type(::Type{<:Bar}) = MsgPack2.ImmutableStructType()
+
+struct Foo{T,S}
+    x::Union{Nothing,T}
+    y::Vector{S}
+    z::Bar{T}
+end
+
+Base.:(==)(a::Foo, b::Foo) = a.x == b.x && a.y == b.y && a.z == b.z
+
+MsgPack2.msgpack_type(::Type{<:Foo}) = MsgPack2.ImmutableStructType()
+
+foo = Foo{Int,String}(nothing, String["abc", join(rand(Char,typemax(UInt16)))],
+                      Bar(rand(Int), rand(Int)))
+foo_dict = Dict("x" => foo.x, "y" => foo.y, "z" => Dict("a" => foo.z.a, "b" => foo.z.b))
+@test can_round_trip(foo, typeof(foo), foo, foo_dict)
+
+foo = Foo{Float64,Char}(rand(), rand('a':'z', 100), Bar(rand(), rand()))
+foo_dict = Dict("x" => foo.x, "y" => map(string, foo.y), "z" => Dict("a" => foo.z.a, "b" => foo.z.b))
+@test can_round_trip(foo, typeof(foo), foo, foo_dict)
+
 # TODO: MutableStructType
